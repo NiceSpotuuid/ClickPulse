@@ -1,0 +1,61 @@
+name: Build and publish ClickPulse
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ClickPulse-CSharp-Projekt-v3.zip"
+      - ".github/workflows/build-release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build standalone Windows EXE
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Extract ClickPulse project
+        shell: pwsh
+        run: |
+          if (!(Test-Path "ClickPulse-CSharp-Projekt-v3.zip")) {
+            throw "ClickPulse-CSharp-Projekt-v3.zip fehlt im Repository-Root."
+          }
+          Expand-Archive -LiteralPath "ClickPulse-CSharp-Projekt-v3.zip" -DestinationPath "$env:RUNNER_TEMP\clickpulse-src" -Force
+
+      - name: Publish self-contained single-file EXE
+        shell: pwsh
+        run: |
+          $project = Join-Path $env:RUNNER_TEMP "clickpulse-src\ClickPulse\ClickPulse.csproj"
+          if (!(Test-Path $project)) {
+            throw "ClickPulse.csproj wurde im ZIP nicht gefunden."
+          }
+          dotnet publish $project --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true --output "$env:GITHUB_WORKSPACE\publish"
+          if (!(Test-Path "$env:GITHUB_WORKSPACE\publish\ClickPulse.exe")) {
+            throw "ClickPulse.exe wurde nicht erstellt."
+          }
+
+      - name: Publish latest GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: ClickPulse – Latest
+          body: |
+            Aktuelle eigenständige ClickPulse-Version für Windows 10/11 (64-Bit).
+
+            Die EXE enthält die .NET-Laufzeit. Es ist keine separate .NET-Installation nötig.
+          files: publish/ClickPulse.exe
+          fail_on_unmatched_files: true
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
